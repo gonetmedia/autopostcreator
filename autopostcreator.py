@@ -68,7 +68,7 @@ def wrap_text(text, width):
 
 def create_post(title, description, img_url, output_folder, title_font, description_font, title_bg_color, description_bg_color, title_text_color, description_text_color, logo, logo_position):
     headers = {'User-Agent': 'Mozilla/5.0'}
-    default_image_url = "https://via.placeholder.com/1080"  # Varsayılan bir görsel URL'si
+    default_image_url = "https://drive.google.com/file/d/1f2hdZudc-x1ibWJtqikJGQLhQcIRsmnP"  # Varsayılan bir görsel URL'si
 
     try:
         response = requests.get(img_url, headers=headers, timeout=10)
