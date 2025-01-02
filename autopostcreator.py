@@ -14,11 +14,29 @@ import streamlit as st
 def fetch_rss_data(rss_url, num_items):
     headers = {'User-Agent': 'Mozilla/5.0'}
     response = requests.get(rss_url, headers=headers)
+    
+    # Yanıt kodunu kontrol et
+    if response.status_code != 200:
+        st.error(f"Hata: {response.status_code}. Yanıt alınamadı, lütfen URL'yi kontrol edin.")
+        return []
+
     rss_content = response.text
 
-    # RSS XML'ini parse et
-    root = ET.fromstring(rss_content)
+    # Gelen içerği kontrol et
+    if not rss_content.strip():  # İçerik boşsa hata verebilir
+        st.error("Hata: Boş içerik döndürüldü. URL'yi kontrol edin.")
+        return []
 
+    try:
+        # RSS XML'ini parse et
+        root = ET.fromstring(rss_content)
+    except ET.ParseError as e:
+        st.error(f"XML Parse Hatası: {str(e)}")
+        return []
+
+    items = root.findall('.//item')
+    news_data = []
+    
     items = root.findall('.//item')
     news_data = []
 
