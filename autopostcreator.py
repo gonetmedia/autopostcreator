@@ -123,9 +123,9 @@ def create_zip_from_posts(csv_data, output_folder, logo_position):
                 os.remove(post_filename)
 
 # Streamlit UI ile işlemi başlatma
-st.title("RSS Feed Görsel Oluşturucu")
+st.title("Auto Post Creator")
 rss_url = st.text_input("RSS adresini girin:")
-news_count = st.number_input("Çekmek istediğiniz haber sayısını girin:", min_value=1, step=1)
+news_count = st.number_input("istediğiniz Post sayısını girin:", min_value=1, step=1)
 
 # Logo konumu ve dosya yükleme
 logo_position = st.selectbox("Logonun konumunu seçin:", options=["Sol Üst", "Sağ Üst"])
@@ -153,9 +153,11 @@ logo_size = 150  # Logo boyutu: 150x150
 st.sidebar.header("Yardım")
 st.sidebar.write("""
 Uygulama Rehberi:
-- RSS adresi girin ve kaç haber çekmek istediğinizi seçin.
+- RSS adresi girin ve kaç post oluşturmak istediğinizi seçin.
 - Logo ve font dosyalarınızı yükleyin.
-- Başlık ve açıklama konumlarını ve renklerini ayarlayın.
+- Başlık / açıklama konumlarını ve renklerini ayarlayın.
+- En uygun FONT "Avgardd TTF" fontudur.
+- Tercihinize göre farklı fontlar ve font boyutlar deneyerek değişikler yapabilirsiniz.
 - "Gönder" butonuna basarak gerekli işlemleri tamamlayın.
 """)
 
