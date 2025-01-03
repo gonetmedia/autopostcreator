@@ -1,222 +1,338 @@
 import requests
 import xml.etree.ElementTree as ET
 import pandas as pd
-from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
-import zipfile
-import os
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageFilter, UnidentifiedImageError
 from io import BytesIO
 import re
-import html
 import textwrap
+import zipfile
+import os
 import streamlit as st
+import tempfile
+import html
 
-# RSS'den veri çekme fonksiyonu
-def fetch_rss_data(rss_url, num_items):
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    response = requests.get(rss_url, headers=headers)
+# Import bloğundan sonra ve ilk st.title() komutundan önce bu fonksiyonu ekleyin:
+def wrap_text(text, width):
+    """
+    Metni belirli genişlikte satırlara böler ve temizler
     
-    # Yanıt kodunu kontrol et
-    if response.status_code != 200:
-        st.error(f"Hata: {response.status_code}. Yanıt alınamadı, lütfen URL'yi kontrol edin.")
-        return []
+    Args:
+        text (str): Bölünecek metin
+        width (int): Maksimum satır genişliği
+        
+    Returns:
+        str: Temizlenmiş ve satırlara bölünmüş metin
+    """
+    # CDATA etiketlerini temizle
+    text = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', text)
+    
+    # HTML karakterlerini orijinal haline getir
+    text = html.unescape(text)
+    
+    # HTML etiketlerini temizle
+    text = re.sub(r'<[^>]+>', '', text)
+    
+    # Özel karakterleri temizle
+    text = re.sub(r'&[^;]+;', '', text)
+    
+    # Fazla boşlukları temizle
+    text = ' '.join(text.split())
+    
+    # Metni satırlara böl
+    lines = textwrap.wrap(text, width=width, break_long_words=True, break_on_hyphens=True)
+    
+    return '\n'.join(lines)
 
+# Sidebar - Yardım Bilgileri
+with st.sidebar:
+    st.header("📌 Kullanım Kılavuzu")
+    st.markdown("""
+    ### 1️⃣ RSS ve Temel Ayarlar
+    - RSS adresinizi girin
+    - İstediğiniz post sayısını seçin
+    
+    ### 2️⃣ Font Ayarları
+    - TTF formatında font dosyası yükleyin
+    - Başlık ve açıklama boyutlarını ayarlayın
+    
+    ### 3️⃣ Logo Ayarları
+    - PNG formatında logo yükleyin
+    - Logo konumunu seçin
+    
+    ### 4️⃣ Görsel Efektleri
+    - Parlaklık, kontrast ayarlayın
+    - Efekt filtreleri uygulayın
+    
+    ### 5️⃣ Renk Ayarları
+    - Başlık ve açıklama renkleri
+    - Arka plan renkleri
+    
+    ### ❗ Önemli Notlar
+    - Yüksek kaliteli görseller kullanın
+    - Font dosyası yüklenmesi zorunludur
+    - Logo dosyası yüklenmesi zorunludur
+    - Görsel boyutu otomatik 1080x1080 olarak ayarlanır
+    """)
+
+# Ana sayfa düzeni
+st.title("AUTO POST CREATOR")
+
+# RSS Ayarları
+st.header("📰 RSS Ayarları")
+col1, col2 = st.columns(2)
+with col1:
+    rss_url = st.text_input("RSS adresini girin:")
+with col2:
+    news_count = st.number_input("Post sayısı:", min_value=1, step=1)
+
+# Font Ayarları
+st.header("🔤 Font Ayarları")
+col3, col4 = st.columns(2)
+with col3:
+    uploaded_font = st.file_uploader("Font dosyası (TTF):", type="ttf")
+with col4:
+    font_size_title = st.slider("Başlık Boyutu", 20, 50, 35)
+    font_size_description = st.slider("Açıklama Boyutu", 15, 40, 25)
+
+# Logo Ayarları
+st.header("🖼️ Logo Ayarları")
+col5, col6 = st.columns(2)
+with col5:
+    uploaded_logo = st.file_uploader("Logo dosyası:", type=["png", "jpg", "jpeg"])
+with col6:
+    logo_position = st.selectbox("Logo Konumu", ["Sol Üst", "Sağ Üst"])
+
+# Metin Konumları
+st.header("📝 Metin Konumları")
+col7, col8 = st.columns(2)
+with col7:
+    title_position = st.selectbox("Başlık Konumu", ["Sol", "Sağ"])
+with col8:
+    description_position = st.selectbox("Açıklama Konumu", ["Sol", "Sağ"])
+
+# Renk Seçiciler
+st.header("🎨 Renk Ayarları")
+col9, col10, col11 = st.columns(3)
+with col9:
+    title_bg_color = st.color_picker("Başlık Arka Plan", "#006B6B")
+    title_text_color = st.color_picker("Başlık Metin", "#FFFFFF")
+with col10:
+    desc_bg_color = st.color_picker("Açıklama Arka Plan", "#FFFFFF")
+    desc_text_color = st.color_picker("Açıklama Metin", "#000000")
+with col11:
+    overlay_opacity = st.slider("Arka Plan Opaklığı", 0.0, 1.0, 0.9)
+
+# Görsel Efektleri
+st.header("✨ Görsel Efektleri")
+col12, col13, col14 = st.columns(3)
+with col12:
+    brightness = st.slider("Parlaklık", 0.5, 2.0, 1.0, 0.1)
+    contrast = st.slider("Kontrast", 0.5, 2.0, 1.0, 0.1)
+with col13:
+    sharpness = st.slider("Keskinlik", 0.0, 2.0, 1.0, 0.1)
+with col14:
+    effect_filter = st.selectbox("Efekt Filtresi", 
+                                ["Yok", "Blur", "Contour", "Edge Enhance", "Emboss", "Smooth"])
+
+def hex_to_rgb(hex_color):
+    hex_color = hex_color.lstrip('#')
+    return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+
+def fetch_rss_data(rss_url, num_items):
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    }
+    response = requests.get(rss_url, headers=headers)
     rss_content = response.text
 
-    # Gelen içerği kontrol et
-    if not rss_content.strip():  # İçerik boşsa hata verebilir
-        st.error("Hata: Boş içerik döndürüldü. URL'yi kontrol edin.")
-        return []
-
-    try:
-        # RSS XML'ini parse et
-        root = ET.fromstring(rss_content)
-    except ET.ParseError as e:
-        st.error(f"XML Parse Hatası: {str(e)}")
-        return []
-
-    items = root.findall('.//item')
-    news_data = []
-    
+    root = ET.fromstring(rss_content)
     items = root.findall('.//item')
     news_data = []
 
     for item in items[:num_items]:
         title = item.find('.//title').text if item.find('.//title') is not None else 'Başlık Yok'
         description = item.find('.//description').text if item.find('.//description') is not None else 'Açıklama Yok'
-
-        # CDATA etiketlerini temizleme
-        description = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', description)
-        description = html.unescape(description)
-
-        # Görsel URL'sini alma
+        
         image_url = None
-        image_tag = item.find('.//image') or item.find('.//imageUrl') or \
-                    item.find('.//media:content', namespaces={'media': 'http://search.yahoo.com/mrss/'}) or \
-                    item.find('.//enclosure')
-
-        if image_tag is not None and 'url' in image_tag.attrib:
-            image_url = image_tag.attrib['url'] if image_tag.tag == 'enclosure' and 'url' in image_tag.attrib else image_tag.text
+        for tag in ['image', 'imageUrl', './/media:content', './/enclosure']:
+            if tag.startswith('.//'):
+                elem = item.find(tag, namespaces={'media': 'http://search.yahoo.com/mrss/'})
+                if elem is not None:
+                    image_url = elem.get('url')
+                    break
+            else:
+                elem = item.find(f'.//{tag}')
+                if elem is not None and elem.text:
+                    image_url = elem.text
+                    break
 
         news_data.append((title, description, image_url))
 
     return news_data
 
-# Görsel oluşturma fonksiyonu
-def wrap_text(text, width):
-    lines = textwrap.wrap(text, width=width)
-    return "\n".join(lines)
+def apply_image_effects(img):
+    # Parlaklık
+    enhancer = ImageEnhance.Brightness(img)
+    img = enhancer.enhance(brightness)
+    
+    # Kontrast
+    enhancer = ImageEnhance.Contrast(img)
+    img = enhancer.enhance(contrast)
+    
+    # Keskinlik
+    enhancer = ImageEnhance.Sharpness(img)
+    img = enhancer.enhance(sharpness)
+    
+    # Filtreler
+    if effect_filter == "Blur":
+        img = img.filter(ImageFilter.BLUR)
+    elif effect_filter == "Contour":
+        img = img.filter(ImageFilter.CONTOUR)
+    elif effect_filter == "Edge Enhance":
+        img = img.filter(ImageFilter.EDGE_ENHANCE)
+    elif effect_filter == "Emboss":
+        img = img.filter(ImageFilter.EMBOSS)
+    elif effect_filter == "Smooth":
+        img = img.filter(ImageFilter.SMOOTH)
+    
+    return img
 
-def create_post(title, description, img_url, output_folder, title_font, description_font, title_bg_color, description_bg_color, title_text_color, description_text_color, logo, logo_position):
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    default_image_url = "https://drive.google.com/file/d/1f2hdZudc-x1ibWJtqikJGQLhQcIRsmnP"  # Varsayılan bir görsel URL'si
+# RSS verisini çek
+if rss_url and news_count and uploaded_font:
+    data = fetch_rss_data(rss_url, news_count)
+    df = pd.DataFrame(data, columns=['Title', 'Description', 'Image URL'])
 
+    # Font yükleme
     try:
-        response = requests.get(img_url, headers=headers, timeout=10)
-        response.raise_for_status()
-        if "image" not in response.headers.get("Content-Type", ""):
-            response = requests.get(default_image_url, headers=headers, timeout=10)
-    except Exception:
-        response = requests.get(default_image_url, headers=headers, timeout=10)
-
-    try:
-        img = Image.open(BytesIO(response.content))
-    except UnidentifiedImageError:
-        return None
-
-    img = img.resize((1080, 1080))
-    draw = ImageDraw.Draw(img)
-
-    wrapped_title = wrap_text(title, 50).upper()
-    wrapped_description = wrap_text(description, 80).upper()
-
-    title_bbox = draw.textbbox((0, 0), wrapped_title, font=title_font)
-    description_bbox = draw.textbbox((0, 0), wrapped_description, font=description_font)
-
-    title_width, title_height = title_bbox[2] - title_bbox[0], title_bbox[3] - title_bbox[1]
-    description_width, description_height = description_bbox[2] - description_bbox[0], description_bbox[3] - description_bbox[1]
-
-    # Başlık konumunu ayarlama
-    title_x = 30 if title_alignment == "Sol" else 1080 - title_width - 30
-    description_x = 30 if description_alignment == "Sol" else 1080 - description_width - 30
-
-    total_height = title_height + description_height
-    title_y = (1080 - total_height) / 2 + 280
-    description_y = title_y + title_height + 70
-
-    # Oval kutular oluşturma
-    corner_radius = 20  # Oval köşe yarıçapı
-    draw.rounded_rectangle([title_x - 20, title_y - 20, title_width + title_x + 20, title_y + title_height + 20], radius=corner_radius, fill=title_bg_color)
-    draw.rounded_rectangle([description_x - 20, description_y - 20, description_width + description_x + 20, description_y + description_height + 20], radius=corner_radius, fill=description_bg_color)
-
-    draw.text((title_x, title_y), wrapped_title, font=title_font, fill=title_text_color)
-    draw.text((description_x, description_y), wrapped_description, font=description_font, fill=description_text_color)
-
-    logo_resized = logo.resize((logo_size, logo_size))
-
-    if logo_position == "Sol Üst":
-        logo_x, logo_y = 30, 30
-    else:  # Sağ Üst
-        logo_x, logo_y = 1080 - logo_size - 30, 30
-
-    img.paste(logo_resized, (logo_x, logo_y), logo_resized)
-
-    safe_title = re.sub(r'[^\w\-_\. ]', '_', title[:10])
-    post_filename = os.path.join(os.path.dirname(output_folder), f"post_{safe_title}.jpg")
-
-    os.makedirs(os.path.dirname(output_folder), exist_ok=True)
-    img.save(post_filename)
-    return post_filename
-
-# ZIP dosyasını oluşturma ve indirme fonksiyonu
-def create_zip_from_posts(csv_data, output_folder, logo_position):
-    with zipfile.ZipFile(output_folder, 'w') as zipf:
-        for index, row in csv_data.iterrows():
-            title = row['Title']
-            description = row['Description']
-            img_url = row['Image URL']
-
-            post_filename = create_post(title, description, img_url, output_folder, title_font, description_font, title_bg_color, description_bg_color, title_text_color, description_text_color, logo, logo_position)
-            if post_filename:
-                zipf.write(post_filename, os.path.basename(post_filename))
-                os.remove(post_filename)
-
-# Streamlit UI ile işlemi başlatma
-st.title("Auto Post Creator")
-rss_url = st.text_input("RSS adresini girin:")
-news_count = st.number_input("istediğiniz Post sayısını girin:", min_value=1, step=1)
-
-# Logo konumu ve dosya yükleme
-logo_position = st.selectbox("Logonun konumunu seçin:", options=["Sol Üst", "Sağ Üst"])
-uploaded_font = st.file_uploader("Yazı fontunu yükleyin (TTF formatında)", type=["ttf"])
-uploaded_logo = st.file_uploader("Logo dosyasını yükleyin (PNG formatında)", type=["png", "jpg", "jpeg"])
-
-# Kutu ve metin renkleri
-title_bg_color = st.color_picker("Başlık arka plan rengini seçin:", "#009999")
-description_bg_color = st.color_picker("Açıklama arka plan rengini seçin:", "#FFFFFF")
-title_text_color = st.color_picker("Başlık metni rengini seçin:", "#FFFFFF")
-description_text_color = st.color_picker("Açıklama metni rengini seçin:", "#000000")
-
-# Font boyutlarını ayarlama
-title_font_size = st.number_input("Başlık font boyutunu ayarlayın:", min_value=10, max_value=100, value=35)
-description_font_size = st.number_input("Açıklama font boyutunu ayarlayın:", min_value=10, max_value=100, value=25)
-
-# Metin konumu ayarlama için seçim aracı
-title_alignment = st.selectbox("Başlık konumunu seçin:", options=["Sol", "Sağ"])
-description_alignment = st.selectbox("Açıklama konumunu seçin:", options=["Sol", "Sağ"])
-
-# Logo boyutunu sabit olarak belirleme
-logo_size = 150  # Logo boyutu: 150x150
-
-# Yardım Dokümanları
-st.sidebar.header("Yardım")
-st.sidebar.write("""
-Uygulama Rehberi:
-- RSS adresi girin ve kaç post oluşturmak istediğinizi seçin.
-- Logo ve font dosyalarınızı yükleyin.
-- Başlık / açıklama konumlarını ve renklerini ayarlayın.
-- En uygun FONT "Avgardd TTF" fontudur.
-- Tercihinize göre farklı fontlar ve font boyutlar deneyerek değişikler yapabilirsiniz.
-- "Gönder" butonuna basarak gerekli işlemleri tamamlayın.
-""")
-
-if st.button('Gönder'):
-    if rss_url and uploaded_font and uploaded_logo:
-        # ZIP dosyası için dizini belirleme
-        zip_dir = os.path.join(os.path.expanduser("~"), "Desktop", "post")
-        os.makedirs(zip_dir, exist_ok=True)  # Dizin yoksa oluştur
+        temp_dir = tempfile.mkdtemp()
+        font_path = os.path.join(temp_dir, "temp_font.ttf")
         
-        # ZIP dosyasının tam yolunu belirleme
-        output_zip_path = os.path.join(zip_dir, "posts.zip")
+        with open(font_path, "wb") as f:
+            f.write(uploaded_font.getvalue())
+        
+        title_font = ImageFont.truetype(font_path, font_size_title)
+        description_font = ImageFont.truetype(font_path, font_size_description)
+        
+    except Exception as e:
+        st.error(f"Font yükleme hatası: {e}")
+        st.stop()
 
-        # RSS verilerini al
-        data = fetch_rss_data(rss_url, news_count)
-        if data:
-            df = pd.DataFrame(data, columns=['Title', 'Description', 'Image URL'])
+    def create_post(title, description, img_url, output_folder):
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        default_image_url = "https://via.placeholder.com/1080x1080.png?text=Placeholder"
 
-            # Fontu yükleme
-            title_font = None
-            description_font = None
+        try:
+            response = requests.get(img_url if img_url else default_image_url, headers=headers, timeout=10)
+            response.raise_for_status()
             
-            if uploaded_font:
+            if "image" not in response.headers.get("Content-Type", ""):
+                response = requests.get(default_image_url, headers=headers, timeout=10)
+        except Exception:
+            response = requests.get(default_image_url, headers=headers, timeout=10)
+
+        try:
+            img = Image.open(BytesIO(response.content))
+        except UnidentifiedImageError:
+            return None
+
+        img = img.convert('RGB')
+        img = img.resize((1080, 1080), Image.Resampling.LANCZOS)
+        
+        # Efektleri uygula
+        img = apply_image_effects(img)
+        
+        draw = ImageDraw.Draw(img)
+
+        title = wrap_text(title, 50).upper()
+        description = wrap_text(description, 80).upper()
+
+        title_bbox = draw.textbbox((0, 0), title, font=title_font)
+        description_bbox = draw.textbbox((0, 0), description, font=description_font)
+
+        title_width = title_bbox[2] - title_bbox[0]
+        title_height = title_bbox[3] - title_bbox[1]
+        description_width = description_bbox[2] - description_bbox[0]
+        description_height = description_bbox[3] - description_bbox[1]
+
+        title_x = 30 if title_position == "Sol" else 1080 - title_width - 30
+        description_x = 30 if description_position == "Sol" else 1080 - description_width - 30
+
+        total_height = title_height + description_height
+        title_y = (1080 - total_height) / 2 + 280
+        description_y = title_y + title_height + 70
+
+        # Renkli arka planlar
+        title_bg = (*hex_to_rgb(title_bg_color), int(255 * overlay_opacity))
+        desc_bg = (*hex_to_rgb(desc_bg_color), int(255 * overlay_opacity))
+        
+        # Metin arka planları
+        overlay = Image.new('RGBA', (1080, 1080), (0, 0, 0, 0))
+        draw_overlay = ImageDraw.Draw(overlay)
+        
+        draw_overlay.rectangle([title_x - 20, title_y - 20, title_width + title_x + 20, title_y + title_height + 20], 
+                             fill=title_bg)
+        draw_overlay.rectangle([description_x - 20, description_y - 20, description_width + description_x + 20, 
+                              description_y + description_height + 20], fill=desc_bg)
+        
+        img = Image.alpha_composite(img.convert('RGBA'), overlay)
+        img = img.convert('RGB')
+        draw = ImageDraw.Draw(img)
+
+        # Metinleri yaz
+        draw.text((title_x, title_y), title, font=title_font, fill=title_text_color)
+        draw.text((description_x, description_y), description, font=description_font, fill=desc_text_color)
+
+        if uploaded_logo:
+            logo = Image.open(uploaded_logo)
+            logo = logo.convert('RGBA')
+            logo = logo.resize((120, 120))
+            logo_x = 30 if logo_position == "Sol Üst" else 1080 - 150
+            img.paste(logo, (logo_x, 30), logo)
+
+        safe_title = re.sub(r'[^\w\-_\. ]', '_', title[:10])
+        post_filename = os.path.join(output_folder, f"post_{safe_title}.jpg")
+        img.save(post_filename, quality=95)
+        
+        return post_filename
+
+    if st.button("Gönderi Oluştur ve İndir"):
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        output_folder = "posts"
+        os.makedirs(output_folder, exist_ok=True)
+
+        zip_filename = "posts.zip"
+        with zipfile.ZipFile(zip_filename, 'w') as zipf:
+            total_items = len(df)
+            for index, row in df.iterrows():
                 try:
-                    font_bytes = uploaded_font.read()
-                    title_font = ImageFont.truetype(BytesIO(font_bytes), title_font_size)
-                    description_font = ImageFont.truetype(BytesIO(font_bytes), description_font_size)
+                    status_text.text(f"İşleniyor: {index + 1}/{total_items}")
+                    progress_bar.progress((index + 1) / total_items)
+                    
+                    post_filename = create_post(row['Title'], row['Description'], row['Image URL'], output_folder)
+                    if post_filename:
+                        zipf.write(post_filename, os.path.basename(post_filename))
+                        os.remove(post_filename)
                 except Exception as e:
-                    st.error(f"Font yüklenirken bir hata oluştu: {e}")
+                    st.error(f"Hata: {str(e)}")
+                    continue
 
-            # Logo dosyasını yükleme
-            logo = None
-            if uploaded_logo:
-                logo = Image.open(uploaded_logo)
+        try:
+            os.remove(font_path)
+            os.rmdir(temp_dir)
+        except:
+            pass
 
-            # ZIP dosyasının oluşturulması
-            create_zip_from_posts(df, output_zip_path, logo_position)
-
-            # ZIP dosyasını oku ve akışa yaz
-            with open(output_zip_path, 'rb') as f:
-                st.download_button("ZIP Dosyasını İndir", data=f, file_name="posts.zip", mime="application/zip")
-        else:
-            st.error("Hatalı RSS URL veya veri bulunamadı.")
-    else:
-        st.error("Lütfen tüm alanları doldurun: RSS URL, Font, Logo.")
+        progress_bar.progress(100)
+        status_text.text("Tamamlandı!")
+        
+        with open(zip_filename, "rb") as fp:
+            st.download_button(
+                label="📥 ZIP Dosyasını İndir",
+                data=fp,
+                file_name=zip_filename,
+                mime="application/zip"
+            )
