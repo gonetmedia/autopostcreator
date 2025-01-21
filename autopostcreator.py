@@ -248,7 +248,7 @@ def create_post(title, description, img_url, output_folder):
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     }
-    default_image_url = "https://via.placeholder.com/1080x1080.png?text=Placeholder"
+    default_image_url = "https://dummyimage.com/1080x1350/000/fff&text=Placeholder"
 
     try:
         response = requests.get(img_url if img_url else default_image_url, headers=headers, timeout=10)
@@ -265,7 +265,7 @@ def create_post(title, description, img_url, output_folder):
         return None
 
     img = img.convert('RGB')
-    img = img.resize((1080, 1080), Image.Resampling.LANCZOS)
+    img = img.resize((1080, 1350), Image.Resampling.LANCZOS)  # Boyut değişikliği burada yapıldı
     
     img = apply_image_effects(img)
     
@@ -286,13 +286,13 @@ def create_post(title, description, img_url, output_folder):
     description_x = 30 if description_position == "Sol" else 1080 - description_width - 30
 
     total_height = title_height + description_height
-    title_y = (1080 - total_height) / 2 + 280
-    description_y = title_y + title_height + 70
+    title_y = (1350 - total_height) / 2 + 350  # Bu hesaplama ile uyumlu hale getiriliyor
+    description_y = title_y + title_height + 100
 
     title_bg = (*hex_to_rgb(title_bg_color), int(255 * overlay_opacity))
     desc_bg = (*hex_to_rgb(desc_bg_color), int(255 * overlay_opacity))
     
-    overlay = Image.new('RGBA', (1080, 1080), (0, 0, 0, 0))
+    overlay = Image.new('RGBA', (1080, 1350), (0, 0, 0, 0))  # Yüksekliğin güncellenmesi
     draw_overlay = ImageDraw.Draw(overlay)
     
     draw_overlay.rectangle([title_x - 20, title_y - 20, title_width + title_x + 20, title_y + title_height + 20], 
